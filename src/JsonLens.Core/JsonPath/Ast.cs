@@ -131,13 +131,17 @@ internal sealed class QueryAst
         foreach (var sel in selectors) sel.Select(node, output, ctx);
         if (output.Count >= limit) return;
 
+        // Every selector selects children of its input, so visiting a scalar can never add output:
+        // only descend into containers (this skips a node and a path link for most values).
         switch (node.Value.ValueKind)
         {
             case JsonValueKind.Object:
                 int m = 0;
                 foreach (var prop in node.Value.EnumerateObject())
                 {
-                    Descend(ctx.Child(node, ctx.MemberSegment(prop, m++), prop.Value), selectors, output, ctx, limit);
+                    int memberIndex = m++;
+                    if (!IsContainer(prop.Value)) continue;
+                    Descend(ctx.Child(node, ctx.MemberSegment(prop, memberIndex), prop.Value), selectors, output, ctx, limit);
                     if (output.Count >= limit) return;
                 }
                 break;
@@ -145,12 +149,16 @@ internal sealed class QueryAst
                 int i = 0;
                 foreach (var item in node.Value.EnumerateArray())
                 {
-                    Descend(ctx.Child(node, PathSegment.At(i++), item), selectors, output, ctx, limit);
+                    int index = i++;
+                    if (!IsContainer(item)) continue;
+                    Descend(ctx.Child(node, PathSegment.At(index), item), selectors, output, ctx, limit);
                     if (output.Count >= limit) return;
                 }
                 break;
         }
     }
+
+    private static bool IsContainer(JsonElement e) => e.ValueKind is JsonValueKind.Object or JsonValueKind.Array;
 }
 
 internal sealed class Segment

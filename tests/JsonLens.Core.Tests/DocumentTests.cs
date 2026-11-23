@@ -42,6 +42,77 @@ public class DocumentTests
     }
 
     [Fact]
+    public void Load_reports_progress_in_order_and_counts_like_before()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "JsonLensTests-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            // Bigger than one read chunk (8 MB) so reading reports several steps.
+            DemoData.EnsureFile(path, orders: 12_000);
+            var reports = new List<LoadProgress>();
+            using var doc = JsonDoc.Load(path, new SyncProgress(reports.Add));
+
+            var phases = reports.Select(r => r.Phase).Distinct().ToArray();
+            Assert.Equal(new[] { "Reading", "Parsing", "Counting" }, phases);
+            var reading = reports.Where(r => r.Phase == "Reading").Select(r => r.Fraction).ToArray();
+            Assert.True(reading.Length >= 3, $"{reading.Length} reading reports");
+            Assert.Equal(reading.OrderBy(f => f), reading);
+            Assert.Equal(1.0, reading[^1]);
+
+            Assert.Equal(JsonDoc.CountNodes(doc.Root), doc.NodeCount);
+            Assert.Equal(new FileInfo(path).Length, doc.ByteSize);
+            using var reference = JsonDoc.Parse(File.ReadAllBytes(path), path);
+            Assert.Equal(reference.NodeCount, doc.NodeCount);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_can_be_cancelled()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "JsonLensTests-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            File.WriteAllText(path, "[1, 2, 3]");
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+            Assert.ThrowsAny<OperationCanceledException>(() => JsonDoc.Load(path, null, cts.Token));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Loading_does_not_lock_the_file_against_writers()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "JsonLensTests-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            File.WriteAllText(path, "{\"a\": 1}");
+            using var doc = JsonDoc.Load(path);
+            File.WriteAllText(path, "{\"a\": 2}"); // an editor saving while the file is open in JSON Lens
+            Assert.Equal(1, doc.Root.GetProperty("a").GetInt32());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>Progress&lt;T&gt; posts to the thread pool; this one reports synchronously, in order.</summary>
+    private sealed class SyncProgress : IProgress<LoadProgress>
+    {
+        private readonly Action<LoadProgress> _report;
+        public SyncProgress(Action<LoadProgress> report) => _report = report;
+        public void Report(LoadProgress value) => _report(value);
+    }
+
+    [Fact]
     public void Demo_data_is_identical_every_time_and_valid()
     {
         var a = DemoData.Generate(orders: 500);

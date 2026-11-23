@@ -8,6 +8,9 @@ namespace JsonLens.App;
 
 public partial class App : Application
 {
+    /// <summary>True when Windows power throttling (EcoQoS) was switched off for this process.</summary>
+    public static bool PowerThrottlingDisabled { get; private set; }
+
     private ConsoleOutput? _output;
     private bool _headless;
 
@@ -17,6 +20,7 @@ public partial class App : Application
         DispatcherUnhandledException += OnUnhandledException;
 
         var cl = CommandLine.Parse(e.Args);
+        PowerThrottlingDisabled = !cl.Eco && PowerThrottling.OptOut();
         switch (cl.Mode)
         {
             case RunMode.Help:
@@ -34,6 +38,14 @@ public partial class App : Application
                 int checkCode = new CheckMode(_output, cl).Run();
                 _output.Dispose();
                 Shutdown(checkCode);
+                return;
+
+            case RunMode.Bench:
+                _headless = true;
+                _output = new ConsoleOutput(cl.LogFile);
+                int benchCode = new BenchMode(_output, cl).Run();
+                _output.Dispose();
+                Shutdown(benchCode);
                 return;
 
             case RunMode.Frames:

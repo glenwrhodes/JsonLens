@@ -207,6 +207,39 @@ public sealed class CheckMode
             return vm.DocInfo;
         });
 
+        Step("UI stays responsive while the large file loads", () =>
+        {
+            using var asyncVm = new MainViewModel(new RecordingAppServices(), synchronous: false);
+            var asyncView = new MainView { DataContext = asyncVm };
+            Offscreen.Settle(asyncView, ViewSize);
+
+            var progress = new List<double>();
+            var phases = new HashSet<string>();
+            asyncVm.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(MainViewModel.LoadProgress)) progress.Add(asyncVm.LoadProgress);
+                if (e.PropertyName == nameof(MainViewModel.LoadingText)) phases.Add(asyncVm.LoadingText.Split(' ')[0]);
+            };
+
+            var (maxGap, elapsed) = PumpWhileWatchingUiThread(asyncVm.OpenFileAsync(demoPath));
+            Require(asyncVm.HasDocument && asyncVm.Document!.NodeCount == vm.Document!.NodeCount, asyncVm.LoadError ?? "not loaded");
+            Require(phases.Contains("Reading") && phases.Contains("Parsing"), $"phases shown: {string.Join(", ", phases)}");
+            Require(progress.Count >= 3 && progress.Zip(progress.Skip(1)).All(p => p.Second >= p.First), $"progress updates: {string.Join(" ", progress.Select(p => p.ToString("0.00")))}");
+            // 250 ms is a visible stutter. Small CI runners (4 vCPUs) get more room so speed alone doesn't fail a release.
+            double limit = Environment.ProcessorCount >= 8 ? 250 : 500;
+            Require(maxGap < limit, $"the UI thread was blocked for {maxGap:N0} ms (limit {limit:N0} ms)");
+
+            // Cancel gives the window back at once, even though a parse can't be interrupted.
+            using var cancelVm = new MainViewModel(new RecordingAppServices(), synchronous: false);
+            var load = cancelVm.OpenFileAsync(demoPath);
+            cancelVm.CancelLoad();
+            var (_, cancelTime) = PumpWhileWatchingUiThread(load);
+            Require(!cancelVm.HasDocument && !cancelVm.IsLoading, "cancel didn't stop the load");
+            Require(cancelTime < 200, $"cancel took {cancelTime:N0} ms");
+
+            return $"load took {elapsed:N0} ms; longest UI-thread pause {maxGap:N0} ms (limit {limit:N0}); {progress.Count} progress updates; cancel returned in {cancelTime:N0} ms";
+        });
+
         Step("Large file: reveal a deep node", () =>
         {
             var sw = Stopwatch.StartNew();
@@ -306,6 +339,34 @@ public sealed class CheckMode
             string message = ex is CheckFailed ? ex.Message : ex.ToString();
             _out.Line($"FAIL  {name}  {message}");
         }
+    }
+
+    /// <summary>
+    /// Runs the dispatcher until <paramref name="task"/> finishes, with a 10 ms timer on the UI thread.
+    /// Returns the longest gap between timer ticks (how long the UI thread was ever busy) and the total time.
+    /// </summary>
+    private static (double MaxGapMs, double ElapsedMs) PumpWhileWatchingUiThread(Task task)
+    {
+        var sw = Stopwatch.StartNew();
+        double last = 0, maxGap = 0;
+        var timer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Input)
+        {
+            Interval = TimeSpan.FromMilliseconds(10),
+        };
+        timer.Tick += (_, _) =>
+        {
+            double now = sw.Elapsed.TotalMilliseconds;
+            maxGap = Math.Max(maxGap, now - last);
+            last = now;
+        };
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        task.ContinueWith(_ => frame.Continue = false, TaskScheduler.FromCurrentSynchronizationContext());
+        timer.Start();
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+        timer.Stop();
+        maxGap = Math.Max(maxGap, sw.Elapsed.TotalMilliseconds - last);
+        task.GetAwaiter().GetResult(); // surface any exception
+        return (maxGap, sw.Elapsed.TotalMilliseconds);
     }
 
     private static void Require(bool condition, string message)

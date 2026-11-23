@@ -7,13 +7,15 @@ using JsonLens.App.Services;
 using JsonLens.Core;
 using JsonLens.Core.JsonPath;
 using JsonLens.Core.Tree;
+using LoadStep = JsonLens.Core.LoadProgress;
 
 namespace JsonLens.App.ViewModels;
 
 public sealed class MainViewModel : ObservableObject, IDisposable
 {
     /// <summary>The details pane shows at most this much text; Copy value always copies everything.</summary>
-    public const int DetailLimit = 200_000;
+    /// Measured: a WPF TextBox needs about 260 ms on the UI thread to lay out 190 KB, so keep it small.
+    public const int DetailLimit = 50_000;
     public const int MaxQueryResults = 100_000;
 
     private readonly IAppServices _services;
@@ -68,6 +70,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         NextMatchCommand = new RelayCommand(NextMatch, () => _searchResult.Matches.Count > 0);
         PrevMatchCommand = new RelayCommand(PrevMatch, () => _searchResult.Matches.Count > 0);
         RunQueryCommand = new RelayCommand(() => _ = RunQueryAsync(), () => HasDocument);
+        CancelLoadCommand = new RelayCommand(CancelLoad, () => IsLoading);
         AboutCommand = new RelayCommand(_services.ShowAbout);
         ToggleRowCommand = new RelayCommand(p => { if (p is TreeRow r) ToggleRow(r); });
     }
@@ -77,6 +80,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     // ================================================================ commands
 
     public ICommand OpenCommand { get; }
+    public ICommand CancelLoadCommand { get; }
     public ICommand OpenDemoCommand { get; }
     public ICommand SaveAsCommand { get; }
     public ICommand ExpandAllCommand { get; }
@@ -126,23 +130,128 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string? _loadError;
     public string? LoadError { get => _loadError; private set => Set(ref _loadError, value); }
 
+    private double _loadProgress;
+    /// <summary>0 to 1 while loading. Reading is measured; parsing is estimated from the elapsed time.</summary>
+    public double LoadProgress { get => _loadProgress; private set => Set(ref _loadProgress, value); }
+
+    private string _loadDetail = "";
+    /// <summary>Second line under the loading text, e.g. "120 of 367 MB" or "1.2 s".</summary>
+    public string LoadDetail { get => _loadDetail; private set => Set(ref _loadDetail, value); }
+
+    /// <summary>
+    /// Before opening a file at least this big, the current document is closed first, so two big
+    /// documents never sit in memory together (each costs about twice its file size).
+    /// </summary>
+    public const long UnloadFirstBytes = 64L * 1024 * 1024;
+
+    /// <summary>Planning figure for the parse-progress estimate (measured: about 330-400 MB/s).</summary>
+    private const double EstimatedParseBytesPerSecond = 300.0 * 1024 * 1024;
+
+    private CancellationTokenSource? _loadCts;
+    private TaskCompletionSource? _loadCancelled;
+
     private void Open()
     {
         var path = _services.PickOpenFile();
         if (path is not null) _ = OpenFileAsync(path);
     }
 
-    /// <summary>Opens a file; in synchronous mode it is finished when this returns.</summary>
+    /// <summary>Stops the current load. The window is usable again straight away.</summary>
+    public void CancelLoad()
+    {
+        _loadCts?.Cancel();
+        _loadCancelled?.TrySetResult();
+    }
+
+    /// <summary>
+    /// Opens a file on a background thread with progress, keeping the UI thread free.
+    /// In synchronous mode (--check, --frames) it is finished when this returns.
+    /// </summary>
     public async Task OpenFileAsync(string path)
     {
         if (IsLoading) return;
         string name = Path.GetFileName(path);
+        long size = 0;
+        try { size = new FileInfo(path).Length; } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
+
+        var cts = new CancellationTokenSource();
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _loadCts = cts;
+        _loadCancelled = cancelled;
         IsLoading = true;
-        LoadingText = $"Opening {name}…";
+        LoadError = null;
+        LoadProgress = 0;
+        LoadingText = $"Opening {name}";
+        LoadDetail = AppPaths.FormatBytes(size);
+        CommandManager.InvalidateRequerySuggested();
+
+        if (HasDocument && size >= UnloadFirstBytes) UnloadDocument();
+
+        DispatcherTimer? estimator = null;
         try
         {
-            var doc = Synchronous ? JsonDoc.Load(path) : await Task.Run(() => JsonDoc.Load(path));
+            JsonDoc doc;
+            if (Synchronous)
+            {
+                doc = JsonDoc.Load(path, null, cts.Token);
+            }
+            else
+            {
+                var parseClock = new Stopwatch();
+                string phase = "";
+                // Progress<T> raises on the UI thread (it captures the current SynchronizationContext).
+                var progress = new Progress<LoadStep>(p =>
+                {
+                    if (cts.IsCancellationRequested) return;
+                    phase = p.Phase;
+                    switch (p.Phase)
+                    {
+                        case "Reading":
+                            LoadingText = $"Reading {name}";
+                            LoadDetail = $"{AppPaths.FormatBytes((long)(size * p.Fraction))} of {AppPaths.FormatBytes(size)}";
+                            LoadProgress = 0.25 * p.Fraction;
+                            break;
+                        case "Parsing":
+                            LoadingText = $"Parsing {AppPaths.FormatBytes(size)} of JSON";
+                            parseClock.Start();
+                            break;
+                        case "Counting":
+                            parseClock.Stop();
+                            LoadingText = "Counting values";
+                            LoadDetail = "";
+                            LoadProgress = 0.95;
+                            break;
+                    }
+                });
+                // The parser can't report progress, so move the bar by elapsed time against a typical speed.
+                estimator = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+                estimator.Tick += (_, _) =>
+                {
+                    if (phase != "Parsing") return;
+                    double expected = Math.Max(0.2, size / EstimatedParseBytesPerSecond);
+                    double t = parseClock.Elapsed.TotalSeconds;
+                    LoadProgress = 0.25 + 0.68 * (1 - Math.Exp(-t / expected * 1.6)); // eases towards ~93%
+                    LoadDetail = $"{t:0.0} s";
+                };
+                estimator.Start();
+
+                var load = Task.Run(() => JsonDoc.Load(path, progress, cts.Token));
+                if (await Task.WhenAny(load, cancelled.Task) != load)
+                {
+                    // Cancelled. A parse can't be interrupted, so free its result whenever it finishes.
+                    _ = load.ContinueWith(t => { if (t.Status == TaskStatus.RanToCompletion) t.Result.Dispose(); },
+                        TaskScheduler.Default);
+                    throw new OperationCanceledException(cts.Token);
+                }
+                doc = await load;
+            }
+
+            LoadProgress = 1;
             SetDocument(doc, name);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            ShowToast($"Stopped opening {name}", 2.5, warning: true);
         }
         catch (Exception ex) when (ex is JsonLoadException or IOException or UnauthorizedAccessException)
         {
@@ -152,9 +261,40 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         finally
         {
+            estimator?.Stop();
+            if (ReferenceEquals(_loadCts, cts))
+            {
+                _loadCts = null;
+                _loadCancelled = null;
+            }
+            cts.Dispose();
             IsLoading = false;
             CommandManager.InvalidateRequerySuggested();
         }
+    }
+
+    /// <summary>Closes the current document and clears everything that refers to it.</summary>
+    private void UnloadDocument()
+    {
+        _searchCts?.Cancel();
+        _queryCts?.Cancel();
+        if (_tree is not null) _tree.RowsChanged -= OnRowsChanged;
+        _tree = null;
+        Rows.SetSource(null);
+        SelectedRow = null;
+        _selectedResult = null;
+        OnPropertyChanged(nameof(SelectedResult));
+        QueryResults = Array.Empty<ResultItem>();
+        QueryStatus = "";
+        _searchResult = SearchResult.Empty;
+        _searchIndex = -1;
+        HasDocument = false;
+        UpdateSearchStatus();
+        FileName = "";
+        DocInfo = "";
+        var old = _doc;
+        _doc = null;
+        old?.Dispose();
     }
 
     /// <summary>Opens the generated large demo file, creating it first if it doesn't exist.</summary>
@@ -199,7 +339,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Rows.SetSource(_tree.Rows);
 
         FileName = name;
-        DocInfo = $"{AppPaths.FormatBytes(doc.ByteSize)}  ·  {doc.NodeCount:N0} nodes  ·  parsed in {doc.ParseTime.TotalMilliseconds:N0} ms";
+        DocInfo = $"{AppPaths.FormatBytes(doc.ByteSize)}  ·  {doc.NodeCount:N0} nodes  ·  opened in {doc.LoadTime.TotalMilliseconds:N0} ms";
         LoadError = null;
         HasDocument = true;
 

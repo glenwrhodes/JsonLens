@@ -18,6 +18,9 @@ public sealed class JsonLoadException : Exception
     public long? Column { get; }
 }
 
+/// <summary>Load progress: what is happening and how far along it is (0 to 1).</summary>
+public readonly record struct LoadProgress(string Phase, double Fraction);
+
 /// <summary>
 /// A parsed, read-only JSON document. Wraps <see cref="JsonDocument"/>, which keeps the UTF-8 bytes
 /// and a compact index rather than an object per node, so large files stay cheap.
@@ -33,19 +36,28 @@ public sealed class JsonDoc : IDisposable
 
     private readonly JsonDocument _document;
 
-    private JsonDoc(JsonDocument document, long byteSize, TimeSpan parseTime, string? filePath)
+    private JsonDoc(JsonDocument document, long byteSize, TimeSpan parseTime, string? filePath, CancellationToken ct)
     {
         _document = document;
         ByteSize = byteSize;
         ParseTime = parseTime;
         FilePath = filePath;
-        NodeCount = CountNodes(document.RootElement);
+        var sw = Stopwatch.StartNew();
+        NodeCount = ParallelWalk.CountNodes(document.RootElement, ct);
+        CountTime = sw.Elapsed;
     }
 
     public JsonElement Root => _document.RootElement;
     public long ByteSize { get; }
-    public TimeSpan ParseTime { get; }
     public string? FilePath { get; }
+
+    /// <summary>Time spent reading the file (zero when parsing text or bytes directly).</summary>
+    public TimeSpan ReadTime { get; private set; }
+    public TimeSpan ParseTime { get; }
+    public TimeSpan CountTime { get; }
+
+    /// <summary>Read + parse + count: how long opening took.</summary>
+    public TimeSpan LoadTime => ReadTime + ParseTime + CountTime;
 
     /// <summary>Total number of values in the document, including the root and every container.</summary>
     public long NodeCount { get; }
@@ -56,14 +68,59 @@ public sealed class JsonDoc : IDisposable
         return Parse(bytes, null);
     }
 
-    public static JsonDoc Load(string path)
+    /// <summary>Time per load phase, in order, for diagnostics (--bench).</summary>
+    public IReadOnlyList<(string Name, TimeSpan Time)> Phases =>
+        new[] { ("read file", ReadTime), ("parse (JsonDocument)", ParseTime), ("count nodes", CountTime) };
+
+    public static JsonDoc Load(string path) => Load(path, null);
+
+    /// <summary>
+    /// Reads and parses a file, reporting progress: "Reading" with the fraction of bytes read, then
+    /// "Parsing" (a single step: System.Text.Json can't report progress inside a parse), then
+    /// "Counting". Cancellation is checked between chunks and phases.
+    /// </summary>
+    public static JsonDoc Load(string path, IProgress<LoadProgress>? progress, CancellationToken ct = default)
     {
-        var bytes = File.ReadAllBytes(path);
-        return Parse(bytes, path);
+        var sw = Stopwatch.StartNew();
+        var bytes = ReadFile(path, progress, ct);
+        var readTime = sw.Elapsed;
+        ct.ThrowIfCancellationRequested();
+        var doc = Parse(bytes, path, progress, ct);
+        doc.ReadTime = readTime;
+        return doc;
+    }
+
+    private const int ReadChunk = 8 * 1024 * 1024;
+
+    private static byte[] ReadFile(string path, IProgress<LoadProgress>? progress, CancellationToken ct)
+    {
+        // FileShare.ReadWrite | Delete: never stop an editor from saving the file while we read it.
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
+            bufferSize: 1, FileOptions.SequentialScan);
+        long length = fs.Length;
+        if (length > Array.MaxLength)
+            throw new JsonLoadException($"The file is {length / 1073741824.0:0.0} GB; JSON Lens can open files up to 2 GB.", null, null);
+
+        // Uninitialized: every byte is overwritten by the read, so skip zeroing hundreds of MB.
+        var bytes = GC.AllocateUninitializedArray<byte>((int)length);
+        int read = 0;
+        progress?.Report(new LoadProgress("Reading", 0));
+        while (read < bytes.Length)
+        {
+            ct.ThrowIfCancellationRequested();
+            int n = fs.Read(bytes, read, Math.Min(ReadChunk, bytes.Length - read));
+            if (n == 0) break; // the file got shorter while we were reading it
+            read += n;
+            progress?.Report(new LoadProgress("Reading", (double)read / bytes.Length));
+        }
+        if (read < bytes.Length) Array.Resize(ref bytes, read);
+        return bytes;
     }
 
     /// <summary>Parses raw file bytes. Handles UTF-8 (with or without BOM) and UTF-16 with a BOM.</summary>
-    public static JsonDoc Parse(byte[] bytes, string? filePath)
+    public static JsonDoc Parse(byte[] bytes, string? filePath) => Parse(bytes, filePath, null, default);
+
+    private static JsonDoc Parse(byte[] bytes, string? filePath, IProgress<LoadProgress>? progress, CancellationToken ct)
     {
         ReadOnlyMemory<byte> utf8 = bytes;
         if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
@@ -77,12 +134,13 @@ public sealed class JsonDoc : IDisposable
         }
 
         var sw = Stopwatch.StartNew();
+        JsonDocument document;
         try
         {
+            progress?.Report(new LoadProgress("Parsing", 0));
             // Parse(ReadOnlyMemory) uses the buffer directly instead of copying it.
-            var document = JsonDocument.Parse(utf8, ParseOptions);
+            document = JsonDocument.Parse(utf8, ParseOptions);
             sw.Stop();
-            return new JsonDoc(document, bytes.LongLength, sw.Elapsed, filePath);
         }
         catch (JsonException ex)
         {
@@ -92,6 +150,20 @@ public sealed class JsonDoc : IDisposable
             int cut = reason.IndexOf(" LineNumber:", StringComparison.Ordinal);
             if (cut > 0) reason = reason[..cut].TrimEnd();
             throw new JsonLoadException($"Invalid JSON at line {line}, column {col}: {reason}", line, col, ex);
+        }
+
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            progress?.Report(new LoadProgress("Counting", 0));
+            var doc = new JsonDoc(document, bytes.LongLength, sw.Elapsed, filePath, ct);
+            progress?.Report(new LoadProgress("Counting", 1));
+            return doc;
+        }
+        catch
+        {
+            document.Dispose();
+            throw;
         }
     }
 

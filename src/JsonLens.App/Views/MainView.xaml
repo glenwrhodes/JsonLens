@@ -283,9 +283,20 @@
                 </StackPanel>
 
                 <!-- Loading -->
-                <Grid Grid.Row="1" Background="#CC1E1E1E" Visibility="{Binding IsLoading, Converter={StaticResource Visible}}">
-                    <ProgressBar Style="{StaticResource ThinProgress}" IsIndeterminate="{Binding IsLoading}" VerticalAlignment="Top" />
-                    <TextBlock Text="{Binding LoadingText}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14" Foreground="{StaticResource TextBrightBrush}" />
+                <Grid x:Name="LoadingOverlay" Grid.Row="1" Background="#E61E1E1E" Visibility="{Binding IsLoading, Converter={StaticResource Visible}}">
+                    <ProgressBar Style="{StaticResource ThinProgress}" Minimum="0" Maximum="1" Value="{Binding LoadProgress, Mode=OneWay}" VerticalAlignment="Top" />
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Width="380">
+                        <TextBlock Text="{Binding LoadingText}" FontSize="15" Foreground="{StaticResource TextBrightBrush}" TextTrimming="CharacterEllipsis" />
+                        <Border Height="6" CornerRadius="3" Background="#FF333337" Margin="0,12,0,8" ClipToBounds="True">
+                            <ProgressBar x:Name="LoadBar" Minimum="0" Maximum="1" Value="{Binding LoadProgress, Mode=OneWay}" Height="6"
+                                         Foreground="{StaticResource AccentBrush}" Background="Transparent" BorderThickness="0" />
+                        </Border>
+                        <DockPanel>
+                            <Button x:Name="CancelLoadButton" DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Content="Cancel"
+                                    Command="{Binding CancelLoadCommand}" ToolTip="Stop opening this file" />
+                            <TextBlock Text="{Binding LoadDetail}" Foreground="{StaticResource TextDimBrush}" VerticalAlignment="Center" />
+                        </DockPanel>
+                    </StackPanel>
                 </Grid>
             </Grid>
 
@@ -414,7 +425,7 @@
                     </TextBox>
                     <Border VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,18,14" Background="#FF3A2F1E" CornerRadius="3" Padding="8,3"
                             Visibility="{Binding DetailTruncated, Converter={StaticResource Visible}}">
-                        <TextBlock Text="Preview cut at 200 KB · Copy value copies everything" Foreground="#FFE2C08D" FontSize="11.5" />
+                        <TextBlock Text="Preview cut at 50 KB · Copy value copies everything" Foreground="#FFE2C08D" FontSize="11.5" />
                     </Border>
                 </Grid>
             </Grid>

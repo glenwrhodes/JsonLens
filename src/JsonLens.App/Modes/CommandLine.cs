@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace JsonLens.App.Modes;
 
-public enum RunMode { Normal, Check, Frames, Help }
+public enum RunMode { Normal, Check, Frames, Bench, Help }
 
 /// <summary>
 /// JsonLens.exe [file]
@@ -21,6 +21,15 @@ public sealed class CommandLine
     public string? LogFile { get; private set; }
     public string? Error { get; private set; }
 
+    /// <summary>--bench: generate the file with DemoData at this many orders if it doesn't exist.</summary>
+    public int? GenerateOrders { get; private set; }
+
+    /// <summary>--eco: don't opt out of Windows power throttling.</summary>
+    public bool Eco { get; private set; }
+
+    /// <summary>--bench: how many times to repeat the timed steps (the best run is reported).</summary>
+    public int Runs { get; private set; } = 1;
+
     public const string Usage = """
         JSON Lens © 2026 Tiny Moosh Games Inc.
 
@@ -32,6 +41,9 @@ public sealed class CommandLine
           JsonLens.exe --frames [output-dir] [--fps 30] [--size 1600x900] [--demo-file path]
               Renders a scripted ~40 second demo of the real UI off-screen to PNG frames
               (frame_00001.png, ...). Default output: Videos\JsonLens-frames.
+          JsonLens.exe --bench file.json [--orders N] [--runs 1] [--log path]
+              Times opening, the tree, search and a query on the file and prints memory use.
+              With --orders N, a missing file is first generated with the demo generator.
 
         The demo file is generated from a fixed seed if it is missing
         (default: %LOCALAPPDATA%\JsonLens\large-demo-v1.json).
@@ -69,6 +81,26 @@ public sealed class CommandLine
                         return cl.Fail("--size needs WIDTHxHEIGHT, at least 800x500, for example 1600x900");
                     cl.Width = w;
                     cl.Height = h;
+                    break;
+                case "--bench":
+                    cl.Mode = RunMode.Bench;
+                    cl.FilePath = Next();
+                    if (cl.FilePath is null || cl.FilePath.StartsWith("--", StringComparison.Ordinal))
+                        return cl.Fail("--bench needs a JSON file path");
+                    break;
+                case "--orders":
+                    if (!int.TryParse(Next(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var orders) || orders < 1 || orders > 2_000_000)
+                        return cl.Fail("--orders needs a number from 1 to 2,000,000");
+                    cl.GenerateOrders = orders;
+                    break;
+                case "--runs":
+                    if (!int.TryParse(Next(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var runs) || runs < 1 || runs > 20)
+                        return cl.Fail("--runs needs a number from 1 to 20");
+                    cl.Runs = runs;
+                    break;
+                case "--eco":
+                    // Leave Windows power throttling on (the pre-1.1 behaviour), for before/after comparisons.
+                    cl.Eco = true;
                     break;
                 case "--demo-file":
                     cl.DemoFile = Next() ?? (string?)null;
