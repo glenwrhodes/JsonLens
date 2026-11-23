@@ -26,6 +26,7 @@
     <Color x:Key="GroupColor">#FFC586C0</Color>
     <Color x:Key="ErrorColor">#FFF48771</Color>
     <Color x:Key="SuccessColor">#FF89D185</Color>
+    <Color x:Key="WarningColor">#FFCCA700</Color>
 
     <SolidColorBrush x:Key="TitleBarBrush" Color="{StaticResource TitleBarColor}" />
     <SolidColorBrush x:Key="ToolbarBrush" Color="{StaticResource ToolbarColor}" />
@@ -50,6 +51,7 @@
     <SolidColorBrush x:Key="GroupBrush" Color="{StaticResource GroupColor}" />
     <SolidColorBrush x:Key="ErrorBrush" Color="{StaticResource ErrorColor}" />
     <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />
+    <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />
     <SolidColorBrush x:Key="ScrollThumbBrush" Color="#FF424242" />
     <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#FF5A5A5A" />
 

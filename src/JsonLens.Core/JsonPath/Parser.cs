@@ -139,6 +139,11 @@ internal sealed class Parser
             if (_pos != start) throw Error("Expected digits after '-'");
             return null;
         }
+        // RFC 9535: int = "0" / (["-"] DIGIT1 *DIGIT), so no leading zeros and no "-0".
+        if (_s[digitsStart] == '0' && _pos - digitsStart > 1)
+            throw Error("Numbers can't have a leading zero", start);
+        if (_s[digitsStart] == '0' && digitsStart != start)
+            throw Error("-0 isn't a valid index; use 0", start);
         var text = _s[start.._pos];
         if (!long.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var value) ||
             value > 9007199254740991 || value < -9007199254740991)
@@ -290,6 +295,9 @@ internal sealed class Parser
         int start = _pos;
         if (Peek() == '-') _pos++;
         if (!char.IsAsciiDigit(Peek())) throw Error("Expected digits in number", start);
+        // RFC 9535 (like JSON): the integer part is "0" or starts with 1-9; "-0" is allowed.
+        if (Peek() == '0' && char.IsAsciiDigit(Peek(1)))
+            throw Error("Numbers can't have a leading zero", start);
         while (char.IsAsciiDigit(Peek())) _pos++;
         if (Peek() == '.')
         {

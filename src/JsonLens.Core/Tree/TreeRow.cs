@@ -20,12 +20,16 @@ public sealed class TreeRow : INotifyPropertyChanged
     private bool _isExpanded;
 
     // For value rows.
-    private TreeRow(TreeRow? parent, int depth, string? name, int index, JsonElement element)
+    private TreeRow(TreeRow? parent, int depth, string? name, int index, JsonElement element,
+        int memberIndex = -1, int nameCount = 1, bool isShadowed = false)
     {
         Parent = parent;
         Depth = depth;
         Name = name;
         Index = index;
+        MemberIndex = memberIndex;
+        NameCount = nameCount;
+        IsShadowed = isShadowed;
         Element = element;
         Kind = element.ValueKind switch
         {
@@ -70,6 +74,38 @@ public sealed class TreeRow : INotifyPropertyChanged
     /// <summary>Array index when this value is inside an array, otherwise -1.</summary>
     public int Index { get; }
 
+    /// <summary>Position among the parent object's members when this value is inside an object, otherwise -1.</summary>
+    public int MemberIndex { get; }
+
+    /// <summary>How many members of the parent object have this row's name (more than 1 means a duplicate key).</summary>
+    public int NameCount { get; }
+
+    public bool IsDuplicateKey => NameCount > 1;
+
+    /// <summary>
+    /// A duplicate key that a later member with the same name overrides. JSON parsers keep the
+    /// last one, so a text path such as "$.a" never reaches this value.
+    /// </summary>
+    public bool IsShadowed { get; }
+
+    /// <summary>
+    /// The nearest overridden duplicate on the way from this row up to the root (this row included),
+    /// or null. When set, the text JSONPath and JSON Pointer for this row lead to a different value.
+    /// </summary>
+    public TreeRow? ShadowedOnPath
+    {
+        get
+        {
+            for (var r = ValueRow; r is not null; r = r.Parent)
+                if (r.IsShadowed) return r;
+            return null;
+        }
+    }
+
+    /// <summary>Short note for duplicate keys, shown after the value in the tree.</summary>
+    public string DuplicateNote =>
+        !IsDuplicateKey ? "" : IsShadowed ? "duplicate key · overridden by a later one" : $"duplicate key · last of {NameCount}, the one parsers keep";
+
     public JsonElement Element { get; }
     public RowKind Kind { get; }
 
@@ -109,7 +145,7 @@ public sealed class TreeRow : INotifyPropertyChanged
         {
             if (IsGroup) return $"[{GroupStart} … {GroupEnd - 1}]";
             if (IsRoot) return "$";
-            if (Name is not null) return Name;
+            if (Name is not null) return Name.Length == 0 ? "\"\"" : Name;
             return "[" + Index.ToString(CultureInfo.InvariantCulture) + "]";
         }
     }
@@ -146,7 +182,7 @@ public sealed class TreeRow : INotifyPropertyChanged
             for (var r = this; r is not null; r = r.Parent)
             {
                 if (r.IsGroup || r.IsRoot) continue;
-                segs.Add(r.Name is not null ? PathSegment.Member(r.Name) : PathSegment.At(r.Index));
+                segs.Add(r.Name is not null ? PathSegment.Member(r.Name, r.MemberIndex) : PathSegment.At(r.Index));
             }
             segs.Reverse();
             return segs;
@@ -191,7 +227,9 @@ public sealed class TreeRow : INotifyPropertyChanged
     }
 
     internal static TreeRow CreateValue(TreeRow parent, int depth, ChildEntry entry) =>
-        new(parent, depth, entry.Name, entry.Name is null ? entry.Index : -1, entry.Value);
+        entry.Name is null
+            ? new(parent, depth, null, entry.Index, entry.Value)
+            : new(parent, depth, entry.Name, -1, entry.Value, entry.Index, entry.NameCount, entry.Shadowed);
 
     internal static TreeRow CreateGroup(TreeRow parent, TreeRow owner, int depth, int start, int end) =>
         new(parent, owner, depth, start, end);
@@ -204,4 +242,5 @@ public sealed class TreeRow : INotifyPropertyChanged
     public override string ToString() => $"{KeyText}: {ValueText}";
 }
 
-internal readonly record struct ChildEntry(string? Name, int Index, JsonElement Value);
+/// <summary>A child of a container: name (objects only), position, value, and duplicate-key facts.</summary>
+internal readonly record struct ChildEntry(string? Name, int Index, JsonElement Value, int NameCount = 1, bool Shadowed = false);

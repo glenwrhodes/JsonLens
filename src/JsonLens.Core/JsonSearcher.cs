@@ -84,10 +84,11 @@ public static class JsonSearcher
         switch (element.ValueKind)
         {
             case JsonValueKind.Object:
+                int m = 0;
                 foreach (var prop in element.EnumerateObject())
                 {
                     bool km = s.Options.SearchKeys && prop.Name.Contains(s.Term, s.Comparison);
-                    path.Add(PathSegment.Member(prop.Name));
+                    path.Add(PathSegment.Member(prop.Name, m++));
                     bool go = Walk(prop.Value, path, km, s);
                     path.RemoveAt(path.Count - 1);
                     if (!go) return false;

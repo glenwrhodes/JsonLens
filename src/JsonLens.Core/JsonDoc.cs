@@ -110,7 +110,11 @@ public sealed class JsonDoc : IDisposable
         return count;
     }
 
-    /// <summary>Follows a path from the root. Returns false if any step doesn't exist.</summary>
+    /// <summary>
+    /// Follows a path from the root. Returns false if any step doesn't exist. A member segment with a
+    /// <see cref="PathSegment.MemberIndex"/> selects that exact member (and its name must match);
+    /// without one, a repeated name resolves to the last member with that name.
+    /// </summary>
     public bool TryResolve(IReadOnlyList<PathSegment> path, out JsonElement element) =>
         TryResolve(Root, path, out element);
 
@@ -124,13 +128,37 @@ public sealed class JsonDoc : IDisposable
                 if (element.ValueKind != JsonValueKind.Array || seg.Index >= element.GetArrayLength()) return false;
                 element = element[seg.Index];
             }
+            else if (element.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+            else if (seg.MemberIndex >= 0)
+            {
+                if (!TryGetMemberAt(element, seg.MemberIndex, seg.Name!, out element)) return false;
+            }
             else
             {
-                if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(seg.Name!, out var child)) return false;
+                // TryGetProperty matches the last definition of a repeated name.
+                if (!element.TryGetProperty(seg.Name!, out var child)) return false;
                 element = child;
             }
         }
         return true;
+    }
+
+    private static bool TryGetMemberAt(JsonElement obj, int memberIndex, string name, out JsonElement value)
+    {
+        int i = 0;
+        foreach (var prop in obj.EnumerateObject())
+        {
+            if (i++ == memberIndex)
+            {
+                value = prop.Value;
+                return prop.NameEquals(name);
+            }
+        }
+        value = default;
+        return false;
     }
 
     public void Dispose() => _document.Dispose();

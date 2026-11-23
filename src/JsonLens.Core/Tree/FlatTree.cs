@@ -162,7 +162,13 @@ public sealed class FlatTree
             return row.Kind == RowKind.Array && seg.Index < row.ChildCount ? seg.Index : -1;
         if (row.Kind != RowKind.Object) return -1;
         var entries = GetEntries(row);
-        for (int i = 0; i < entries.Length; i++)
+
+        // An exact member position (paths from rows, search and queries) picks that duplicate.
+        if (seg.MemberIndex >= 0)
+            return seg.MemberIndex < entries.Length && entries[seg.MemberIndex].Name == seg.Name ? seg.MemberIndex : -1;
+
+        // A bare name means what parsers mean: the last member with that name.
+        for (int i = entries.Length - 1; i >= 0; i--)
             if (entries[i].Name == seg.Name) return i;
         return -1;
     }
@@ -205,6 +211,7 @@ public sealed class FlatTree
         if (container.Kind == RowKind.Object)
         {
             foreach (var p in container.Element.EnumerateObject()) entries[i] = new ChildEntry(p.Name, i++, p.Value);
+            MarkDuplicateKeys(entries);
         }
         else if (container.Kind == RowKind.Array)
         {
@@ -212,6 +219,25 @@ public sealed class FlatTree
         }
         container.Entries = entries;
         return entries;
+    }
+
+    /// <summary>Counts repeated names and marks every one except the last as shadowed.</summary>
+    private static void MarkDuplicateKeys(ChildEntry[] entries)
+    {
+        if (entries.Length < 2) return;
+        var counts = new Dictionary<string, int>(entries.Length, StringComparer.Ordinal);
+        foreach (var e in entries)
+            counts[e.Name!] = counts.TryGetValue(e.Name!, out var n) ? n + 1 : 1;
+        if (counts.Count == entries.Length) return; // no duplicates (the usual case)
+
+        var seenLater = new HashSet<string>(StringComparer.Ordinal);
+        for (int i = entries.Length - 1; i >= 0; i--)
+        {
+            var e = entries[i];
+            int count = counts[e.Name!];
+            if (count > 1)
+                entries[i] = e with { NameCount = count, Shadowed = !seenLater.Add(e.Name!) };
+        }
     }
 
     private void AppendVisibleChildren(TreeRow row, List<TreeRow> output)

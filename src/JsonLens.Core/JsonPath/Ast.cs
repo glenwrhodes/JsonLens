@@ -54,6 +54,10 @@ internal sealed class EvalContext
     public Node Child(Node parent, PathSegment segment, JsonElement value) =>
         new(value, TrackPaths ? new PathLink(parent.Path, segment) : null);
 
+    /// <summary>Segment for the member at <paramref name="memberIndex"/>; skips allocating the name when paths aren't tracked.</summary>
+    public PathSegment MemberSegment(JsonProperty prop, int memberIndex) =>
+        TrackPaths ? PathSegment.Member(prop.Name, memberIndex) : default;
+
     /// <summary>Same root and cancellation, but no path tracking (for queries inside filters).</summary>
     public EvalContext ForFilter() => _filterContext ??= new EvalContext(Root, false, Ct);
     private EvalContext? _filterContext;
@@ -130,9 +134,10 @@ internal sealed class QueryAst
         switch (node.Value.ValueKind)
         {
             case JsonValueKind.Object:
+                int m = 0;
                 foreach (var prop in node.Value.EnumerateObject())
                 {
-                    Descend(ctx.Child(node, PathSegment.Member(prop.Name), prop.Value), selectors, output, ctx, limit);
+                    Descend(ctx.Child(node, ctx.MemberSegment(prop, m++), prop.Value), selectors, output, ctx, limit);
                     if (output.Count >= limit) return;
                 }
                 break;
@@ -172,8 +177,27 @@ internal sealed class NameSelector : Selector
 
     public override void Select(Node input, List<Node> output, EvalContext ctx)
     {
-        if (input.Value.ValueKind == JsonValueKind.Object && input.Value.TryGetProperty(Name, out var child))
-            output.Add(ctx.Child(input, PathSegment.Member(Name), child));
+        if (input.Value.ValueKind != JsonValueKind.Object) return;
+        if (!ctx.TrackPaths)
+        {
+            // TryGetProperty matches the last definition of a repeated name, like JSON parsers do.
+            if (input.Value.TryGetProperty(Name, out var child)) output.Add(new Node(child, null));
+            return;
+        }
+
+        // Find the same member (the last one with this name) and remember its position.
+        int i = 0, found = -1;
+        JsonElement value = default;
+        foreach (var prop in input.Value.EnumerateObject())
+        {
+            if (prop.NameEquals(Name))
+            {
+                found = i;
+                value = prop.Value;
+            }
+            i++;
+        }
+        if (found >= 0) output.Add(ctx.Child(input, PathSegment.Member(Name, found), value));
     }
 }
 
@@ -186,8 +210,9 @@ internal sealed class WildcardSelector : Selector
         switch (input.Value.ValueKind)
         {
             case JsonValueKind.Object:
+                int m = 0;
                 foreach (var prop in input.Value.EnumerateObject())
-                    output.Add(ctx.Child(input, PathSegment.Member(prop.Name), prop.Value));
+                    output.Add(ctx.Child(input, ctx.MemberSegment(prop, m++), prop.Value));
                 break;
             case JsonValueKind.Array:
                 int i = 0;
@@ -266,11 +291,13 @@ internal sealed class FilterSelector : Selector
         switch (input.Value.ValueKind)
         {
             case JsonValueKind.Object:
+                int m = 0;
                 foreach (var prop in input.Value.EnumerateObject())
                 {
                     ctx.Tick();
                     if (Expr.Eval(prop.Value, ctx))
-                        output.Add(ctx.Child(input, PathSegment.Member(prop.Name), prop.Value));
+                        output.Add(ctx.Child(input, ctx.MemberSegment(prop, m), prop.Value));
+                    m++;
                 }
                 break;
             case JsonValueKind.Array:

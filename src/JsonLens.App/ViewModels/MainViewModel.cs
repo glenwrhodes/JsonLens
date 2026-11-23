@@ -147,7 +147,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         catch (Exception ex) when (ex is JsonLoadException or IOException or UnauthorizedAccessException)
         {
             var message = ex is JsonLoadException ? $"{name}: {ex.Message}" : $"Couldn't open {name}: {ex.Message}";
-            if (HasDocument) ShowToast(message, 5);
+            if (HasDocument) ShowToast(message, 5, warning: true);
             else LoadError = message;
         }
         finally
@@ -233,7 +233,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void ExpandAll()
     {
         if (_tree is null) return;
-        if (!_tree.ExpandAll()) ShowToast("Expanded the first 200,000 rows (the file is too big to expand fully)", 3.5);
+        if (!_tree.ExpandAll()) ShowToast("Expanded the first 200,000 rows (the file is too big to expand fully)", 3.5, warning: true);
         if (SelectedRow is not null) ScrollRequested?.Invoke(SelectedRow);
     }
 
@@ -279,6 +279,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _selectedInfo = "";
     public string SelectedInfo { get => _selectedInfo; private set => Set(ref _selectedInfo, value); }
 
+    private string _selectedWarning = "";
+    /// <summary>Duplicate-key warning for the selected node, or empty.</summary>
+    public string SelectedWarning { get => _selectedWarning; private set => Set(ref _selectedWarning, value); }
+
+    /// <summary>True when the text path/pointer of the selection lead to a different value (an overridden duplicate key).</summary>
+    public bool SelectedPathIsAmbiguous => SelectedRow?.ShadowedOnPath is not null;
+
     private string _detailText = "";
     public string DetailText { get => _detailText; private set => Set(ref _detailText, value); }
 
@@ -298,12 +305,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void UpdateDetails()
     {
         var row = SelectedRow?.ValueRow;
+        OnPropertyChanged(nameof(SelectedPathIsAmbiguous));
         if (row is null)
         {
-            SelectedPath = SelectedPointer = SelectedInfo = DetailText = "";
+            SelectedPath = SelectedPointer = SelectedInfo = DetailText = SelectedWarning = "";
             DetailTruncated = false;
             return;
         }
+        SelectedWarning = DuplicateWarning(row);
 
         var path = row.Path;
         SelectedPath = PathFormat.ToJsonPath(path);
@@ -321,11 +330,30 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         DetailTruncated = truncated;
     }
 
+    internal static string DuplicateWarning(TreeRow row)
+    {
+        var shadowed = row.ShadowedOnPath;
+        if (shadowed is not null && ReferenceEquals(shadowed, row))
+            return $"Duplicate key: \"{row.Name}\" appears {row.NameCount} times in this object. JSON parsers keep the last one, " +
+                   "so this path and pointer lead to the later value, not to this one.";
+        if (shadowed is not null)
+            return $"This value is inside an overridden duplicate key \"{shadowed.Name}\". JSON parsers drop it, " +
+                   $"so this path and pointer lead to the matching value inside the last \"{shadowed.Name}\" instead.";
+        if (row.IsDuplicateKey)
+            return $"Duplicate key: \"{row.Name}\" appears {row.NameCount} times in this object. This is the last one, the value JSON parsers keep.";
+        return "";
+    }
+
     // ================================================================ copy and save
 
-    private void CopyPath() => CopyText(SelectedPath, $"Copied path   {SelectedPath}");
+    private const string AmbiguousNote = "   (duplicate key: this path leads to the later value)";
 
-    private void CopyPointer() => CopyText(SelectedPointer, $"Copied JSON Pointer   {(SelectedPointer.Length == 0 ? "(root)" : SelectedPointer)}");
+    private void CopyPath() => CopyText(SelectedPath,
+        $"Copied path   {SelectedPath}" + (SelectedPathIsAmbiguous ? AmbiguousNote : ""), SelectedPathIsAmbiguous);
+
+    private void CopyPointer() => CopyText(SelectedPointer,
+        $"Copied JSON Pointer   {(SelectedPointer.Length == 0 ? "(root)" : SelectedPointer)}" + (SelectedPathIsAmbiguous ? AmbiguousNote : ""),
+        SelectedPathIsAmbiguous);
 
     private void CopyValue()
     {
@@ -338,11 +366,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         CopyText(text, $"Copied value ({AppPaths.FormatBytes(System.Text.Encoding.UTF8.GetByteCount(text))}, {(row.Kind == RowKind.String ? "text" : IsMinified ? "minified" : "pretty")})");
     }
 
-    private void CopyText(string text, string toast)
+    private void CopyText(string text, string toast, bool warning = false)
     {
         if (SelectedRow is null) return;
-        if (_services.TrySetClipboard(text)) ShowToast(toast);
-        else ShowToast("The clipboard is busy; try again", 3);
+        if (_services.TrySetClipboard(text)) ShowToast(toast, warning ? 4.5 : 2.2, warning);
+        else ShowToast("The clipboard is busy; try again", 3, warning: true);
     }
 
     private void SaveAs()
@@ -361,7 +389,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            ShowToast($"Couldn't save: {ex.Message}", 5);
+            ShowToast($"Couldn't save: {ex.Message}", 5, warning: true);
         }
     }
 
@@ -593,11 +621,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _toastText = "";
     public string ToastText { get => _toastText; private set => Set(ref _toastText, value); }
 
+    private bool _isToastWarning;
+    public bool IsToastWarning { get => _isToastWarning; private set => Set(ref _isToastWarning, value); }
+
     private double _toastOpacity;
     public double ToastOpacity { get => _toastOpacity; private set => Set(ref _toastOpacity, value); }
 
-    public void ShowToast(string text, double seconds = 2.2)
+    public void ShowToast(string text, double seconds = 2.2, bool warning = false)
     {
+        IsToastWarning = warning;
         ToastText = text;
         ToastOpacity = 1;
         _toastSecondsLeft = seconds;

@@ -29,6 +29,7 @@
     "negative": -0.5,
     "empty object": {},
     "empty array": [],
+    "duplicate key": { "x": "first", "x": "second" },
     "nested": [[1, 2], [3, [4, [5]]]]
   },
   "matrix": [

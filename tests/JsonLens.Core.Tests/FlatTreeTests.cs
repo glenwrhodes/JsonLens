@@ -81,6 +81,10 @@ public class FlatTreeTests
     }
 
     [Fact]
+    public void Empty_key_is_shown_as_quotes() =>
+        Assert.Equal("\"\"", new FlatTree(Parse("""{"": 1}""")).Rows[1].KeyText);
+
+    [Fact]
     public void Long_strings_are_cut_in_the_preview()
     {
         var tree = new FlatTree(Parse("[\"" + new string('x', 5000) + "\"]"));

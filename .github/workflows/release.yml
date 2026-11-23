@@ -1,0 +1,108 @@
+# Builds JSON Lens on a clean Windows runner for every push to main, runs the unit tests and the
+# app's own --check on the published exe, and publishes a self-contained win-x64 zip as a GitHub
+# release. The newest zip is always at:
+#   https://github.com/glenwrhodes/JsonLens/releases/latest/download/JsonLens-win-x64.zip
+
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create releases and tags
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+      VERSION: 1.0.${{ github.run_number }}
+      ZIP_NAME: JsonLens-win-x64.zip
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c Release --no-restore -p:Version=$env:VERSION
+
+      - name: Unit tests
+        run: dotnet test -c Release --no-build --logger "console;verbosity=normal"
+
+      - name: Publish self-contained single-file exe
+        run: >
+          dotnet publish src/JsonLens.App/JsonLens.App.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true -p:DebugType=none
+          -p:Version=$env:VERSION -o publish/JsonLens
+
+      - name: Self-check the published exe (no window)
+        shell: pwsh
+        run: |
+          # JsonLens.exe is a GUI program: start it and wait, then read its report from the log.
+          $p = Start-Process -FilePath publish\JsonLens\JsonLens.exe `
+                 -ArgumentList '--check', '--log', "$PWD\check.log" -Wait -PassThru -NoNewWindow
+          if (Test-Path check.log) { Get-Content check.log }
+          if ($p.ExitCode -ne 0) { throw "JsonLens.exe --check failed with exit code $($p.ExitCode)" }
+
+      - name: Pack zip
+        shell: pwsh
+        run: |
+          Copy-Item packaging\README.txt publish\JsonLens\README.txt
+          Compress-Archive -Path publish\JsonLens\* -DestinationPath $env:ZIP_NAME -Force
+          $size = (Get-Item $env:ZIP_NAME).Length / 1MB
+          "Packed $env:ZIP_NAME ({0:N1} MB)" -f $size
+
+      - name: Keep the zip and check report as build artifacts
+        if: always()   # keep check.log even when --check fails
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: warn
+          name: JsonLens-${{ env.VERSION }}
+          path: |
+            ${{ env.ZIP_NAME }}
+            check.log
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Passed through the environment, never pasted into the script, so a commit message can't inject code.
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          $tag = "v$env:VERSION"
+          $subject = ($env:COMMIT_MESSAGE -split "`n")[0]
+          $notes = @(
+            "Built from $env:GITHUB_SHA$(if ($subject) { ": $subject" })"
+            ""
+            "**Download:** $env:ZIP_NAME below. Unzip it anywhere and run JsonLens.exe."
+            "Windows 10 or 11, 64-bit. No .NET install needed (the runtime is inside the exe)."
+            ""
+            "Unit tests and JsonLens.exe --check passed on a clean Windows runner for this build."
+          ) -join "`n"
+          Set-Content -Path release-notes.md -Value $notes -Encoding utf8
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            # Re-run of the same workflow run: replace the asset.
+            gh release upload $tag $env:ZIP_NAME --clobber
+          } else {
+            gh release create $tag $env:ZIP_NAME --target $env:GITHUB_SHA --title "JSON Lens $env:VERSION" --notes-file release-notes.md --latest
+          }
+          if ($LASTEXITCODE -ne 0) { throw "gh release failed" }

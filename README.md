@@ -1,8 +1,25 @@
 # JSON Lens
 
+[![Build and release](https://github.com/glenwrhodes/JsonLens/actions/workflows/release.yml/badge.svg)](https://github.com/glenwrhodes/JsonLens/actions/workflows/release.yml)
+
 A fast JSON explorer for Windows with a dark IDE look: a tree that stays quick on large files, text search, JSONPath queries, copy path, and pretty or minified output.
 
 Built with C# and WPF on .NET 8.
+
+## Download
+
+**[Download JsonLens-win-x64.zip](https://github.com/glenwrhodes/JsonLens/releases/latest/download/JsonLens-win-x64.zip)** (the latest build; no GitHub account needed). Older builds are on the [releases page](https://github.com/glenwrhodes/JsonLens/releases).
+
+Unzip it anywhere and run `JsonLens.exe`. There is nothing to install.
+
+**What it needs**
+- Windows 10 or 11, 64-bit. Windows on ARM runs it through x64 emulation.
+- No .NET install. The .NET 8 runtime is built into the exe, which is why it's about 70 MB.
+- About 40 MB of free space in `%LOCALAPPDATA%\JsonLens`, and only if you use *Open demo*, which generates its sample file once.
+
+The exe isn't code-signed, so the first time you run it Windows SmartScreen may show "Windows protected your PC". Click **More info**, then **Run anyway**.
+
+Every push to `main` builds a new release on a clean Windows runner. The build runs the unit tests, then runs `JsonLens.exe --check` on the exact exe that goes into the zip, and publishes only if both pass. See [the workflow](.github/workflows/release.yml).
 
 ## Features
 
@@ -12,8 +29,19 @@ Built with C# and WPF on .NET 8.
 - **Selected node:** its JSONPath (for example `$.store.book[0]['odd key']`), Copy path, Copy as JSON Pointer, Copy value, and a Pretty / Minify switch. Numbers are written exactly as they appear in the file. The preview stops at 200 KB, but Copy value always copies everything.
 - **Save as** writes the whole document, pretty or minified.
 - **Opening files:** Open (Ctrl+O), drag and drop, a file path on the command line, or *Open demo* for the generated large file.
+- **Duplicate keys.** JSON allows the same key twice in one object, as in `{"a": 1, "a": 2}`. JSON Lens shows every copy in file order. Search, query results and the tree always open the exact copy you picked.
+  - **Text paths mean the last copy.** A path such as `$.a` has no way to say which copy, so it means the last one. That's the copy JSON.parse, System.Text.Json and Python keep, and the one JSONPath name selectors like `$.a` return here.
+  - **Earlier copies are marked as overridden.** They show a strikethrough key and a note in the tree, and the details pane warns that their path and pointer lead to the later value. Copying the path of an overridden copy, or of anything inside one, shows the same warning.
 
-### Keyboard
+### Controls
+
+| Mouse | Action |
+| --- | --- |
+| Click a row's arrow, or double-click the row | Expand or collapse |
+| Click a row | Select it and show it in the details pane |
+| Click a query result | Jump to it in the tree |
+| Drag a file onto the window | Open it |
+| Drag the splitters | Resize the tree, results and details panes |
 
 | Keys | Action |
 | --- | --- |
@@ -53,7 +81,7 @@ Starts the app without opening a window. It builds the real UI off-screen and ru
 - the theme and layout
 - the built-in sample, expand and collapse
 - search, JSONPath and JSONPath errors
-- copy, pretty and minify
+- copy, duplicate keys, pretty and minify
 - on the large demo file (it is generated if missing): parse, reveal, search, filter and capped expand-all
 - one off-screen render
 
@@ -95,7 +123,7 @@ The large demo file is a fictional shop's order export, about 37 MB. It is never
 src/JsonLens.Core/          no WPF: everything that is tested
   JsonDoc.cs                parse files (UTF-8/16, BOM, comments, trailing commas), node count, error line/column
   Tree/FlatTree.cs          visible-row model: expand, collapse, groups, reveal path, capped expand-all
-  JsonPath/                 RFC 9535 parser and evaluator
+  JsonPath/                 RFC 9535 parser and evaluator (no leading zeros in numbers, as the RFC says)
   JsonSearcher.cs           key/value search with limit and cancellation
   JsonFormatter.cs          pretty/minify that keeps numbers exactly, bounded previews
   PathSegment.cs            JSONPath and JSON Pointer text for a node
@@ -107,6 +135,8 @@ src/JsonLens.App/           WPF app (assembly JsonLens.exe)
   Modes/                    --check, --frames, the demo script and overlay, console output
 tests/JsonLens.Core.Tests/  xUnit tests for Core
 samples/sample.json         small sample (embedded in the app)
+packaging/README.txt        the read-me that goes into the release zip
+.github/workflows/release.yml   build, test, --check, zip and release on every push to main
 ```
 
 © 2026 Tiny Moosh Games Inc.

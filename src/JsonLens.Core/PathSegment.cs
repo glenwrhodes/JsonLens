@@ -4,13 +4,23 @@ using System.Text.Json;
 
 namespace JsonLens.Core;
 
-/// <summary>One step in a path to a node: either an object member name or an array index.</summary>
+/// <summary>
+/// One step in a path to a node: either an object member name or an array index.
+/// <para>
+/// JSON allows the same member name more than once in an object. A member segment can therefore
+/// also carry <see cref="MemberIndex"/>, the member's position among its object's members, which
+/// identifies one exact duplicate. Paths built by JSON Lens itself (tree rows, search and query
+/// results) always carry it. A segment without it (for example parsed from "$.a") means what
+/// JSON parsers mean by the name: the last member with that name.
+/// </para>
+/// </summary>
 public readonly record struct PathSegment
 {
-    private PathSegment(string? name, int index)
+    private PathSegment(string? name, int index, int memberIndex)
     {
         Name = name;
         Index = index;
+        MemberIndex = memberIndex;
     }
 
     /// <summary>Member name, or null when this segment is an array index.</summary>
@@ -19,12 +29,21 @@ public readonly record struct PathSegment
     /// <summary>Array index (only meaningful when <see cref="IsIndex"/>).</summary>
     public int Index { get; }
 
+    /// <summary>Position of the member among its object's members, or -1 for "the last member with this name".</summary>
+    public int MemberIndex { get; }
+
     public bool IsIndex => Name is null;
 
-    public static PathSegment Member(string name) => new(name ?? throw new ArgumentNullException(nameof(name)), -1);
+    public static PathSegment Member(string name) => new(name ?? throw new ArgumentNullException(nameof(name)), -1, -1);
+
+    /// <summary>The member called <paramref name="name"/> that is at <paramref name="memberIndex"/> in its object.</summary>
+    public static PathSegment Member(string name, int memberIndex) =>
+        memberIndex < 0
+            ? throw new ArgumentOutOfRangeException(nameof(memberIndex))
+            : new PathSegment(name ?? throw new ArgumentNullException(nameof(name)), -1, memberIndex);
 
     public static PathSegment At(int index) =>
-        index < 0 ? throw new ArgumentOutOfRangeException(nameof(index)) : new PathSegment(null, index);
+        index < 0 ? throw new ArgumentOutOfRangeException(nameof(index)) : new PathSegment(null, index, -1);
 
     public override string ToString() => IsIndex ? $"[{Index}]" : Name!;
 }

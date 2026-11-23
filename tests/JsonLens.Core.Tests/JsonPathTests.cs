@@ -272,11 +272,41 @@ public class JsonPathTests
     [InlineData("$.a extra", 4)]
     [InlineData("$[-]", 3)]
     [InlineData("$['\\q']", 3)]
+    [InlineData("$[?@.a == 01]", 10)]
+    [InlineData("$[?@.a == -01]", 10)]
+    [InlineData("$[?@.a == 00.5]", 10)]
+    [InlineData("$[01]", 2)]
+    [InlineData("$[-0]", 2)]
+    [InlineData("$[00:2]", 2)]
+    [InlineData("$[0:02]", 4)]
     public void Errors_report_the_position(string query, int position)
     {
         var ex = Assert.Throws<JsonPathException>(() => JsonPathQuery.Parse(query));
         Assert.Equal(position, ex.Position);
         Assert.False(string.IsNullOrWhiteSpace(ex.Message));
+    }
+
+    [Fact]
+    public void Leading_zero_message_is_specific()
+    {
+        var ex = Assert.Throws<JsonPathException>(() => JsonPathQuery.Parse("$[?@.a == 01]"));
+        Assert.Contains("leading zero", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Zero_and_zero_fractions_and_exponents_are_still_valid()
+    {
+        // RFC 9535: int = "0" / (["-"] DIGIT1 *DIGIT); number = (int / "-0") [frac] [exp]; exp digits may start with 0.
+        const string json = "[0, 0.5, -0.5, 10, 100]";
+        Assert.Equal(new[] { "0" }, Values(json, "$[?@ == 0]"));
+        Assert.Equal(new[] { "0" }, Values(json, "$[?@ == -0]"));
+        Assert.Equal(new[] { "0.5" }, Values(json, "$[?@ == 0.5]"));
+        Assert.Equal(new[] { "-0.5" }, Values(json, "$[?@ == -0.5]"));
+        Assert.Equal(new[] { "10" }, Values(json, "$[?@ == 1e01]"));
+        Assert.Equal(new[] { "100" }, Values(json, "$[?@ == 1E+02]"));
+        Assert.Equal(new[] { "0" }, Values(json, "$[0]"));
+        Assert.Equal(new[] { "10", "100" }, Values(json, "$[-2:]"));
+        Assert.Equal(new[] { "0", "0.5" }, Values(json, "$[0:2]"));
     }
 
     [Fact]

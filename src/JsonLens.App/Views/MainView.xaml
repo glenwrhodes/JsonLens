@@ -32,8 +32,18 @@
                 <TextBlock x:Name="Value" Text="{Binding ValueText}" Foreground="{StaticResource StringBrush}" VerticalAlignment="Center" />
                 <TextBlock x:Name="Summary" Text="{Binding Summary}" Foreground="{StaticResource TextDimBrush}"
                            FontFamily="{StaticResource UiFont}" FontSize="11.5" Margin="8,0,0,0" VerticalAlignment="Center" />
+                <TextBlock x:Name="DupNote" Text="{Binding DuplicateNote}" Foreground="{StaticResource WarningBrush}"
+                           FontFamily="{StaticResource UiFont}" FontSize="11.5" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" />
             </StackPanel>
             <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsDuplicateKey}" Value="True">
+                    <Setter TargetName="DupNote" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsShadowed}" Value="True">
+                    <Setter TargetName="Key" Property="TextDecorations" Value="Strikethrough" />
+                    <Setter TargetName="Key" Property="Opacity" Value="0.6" />
+                    <Setter TargetName="Value" Property="Opacity" Value="0.6" />
+                </DataTrigger>
                 <DataTrigger Binding="{Binding IsExpandable}" Value="False">
                     <Setter TargetName="Arrow" Property="Visibility" Value="Hidden" />
                     <Setter TargetName="Chevron" Property="Cursor" Value="Arrow" />
@@ -357,6 +367,13 @@
                                  Foreground="{StaticResource KeyBrush}" FontFamily="{StaticResource CodeFont}" FontSize="12.5" CaretBrush="White"
                                  SelectionBrush="{StaticResource AccentBrush}" ToolTip="JSONPath of the selected node" />
                     </Border>
+                    <Border x:Name="DuplicateWarning" Margin="0,6,0,0" Background="#FF3A2F1E" BorderBrush="#FF6B5530" BorderThickness="1" CornerRadius="4" Padding="8,5"
+                            Visibility="{Binding SelectedWarning, Converter={StaticResource Visible}}">
+                        <DockPanel>
+                            <TextBlock Style="{StaticResource IconText}" Text="&#xE7BA;" Foreground="{StaticResource WarningBrush}" VerticalAlignment="Top" Margin="0,2,8,0" />
+                            <TextBlock Text="{Binding SelectedWarning}" Foreground="#FFE2C08D" TextWrapping="Wrap" FontSize="12" />
+                        </DockPanel>
+                    </Border>
                     <DockPanel Margin="0,8,0,0" LastChildFill="False">
                         <Button x:Name="CopyPathButton" Style="{StaticResource ToolButton}" Command="{Binding CopyPathCommand}" ToolTip="Copy JSONPath (Ctrl+Shift+C)" Margin="0,0,2,0">
                             <StackPanel Orientation="Horizontal">
@@ -410,7 +427,20 @@
                     <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.5" />
                 </Border.Effect>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Style="{StaticResource IconText}" Text="&#xE73E;" Foreground="{StaticResource SuccessBrush}" Margin="0,0,10,0" />
+                    <TextBlock Margin="0,0,10,0">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource IconText}">
+                                <Setter Property="Text" Value="&#xE73E;" />
+                                <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsToastWarning}" Value="True">
+                                        <Setter Property="Text" Value="&#xE7BA;" />
+                                        <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                     <TextBlock Text="{Binding ToastText}" Foreground="{StaticResource TextBrightBrush}" FontFamily="{StaticResource CodeFont}" FontSize="12.5" />
                 </StackPanel>
             </Border>

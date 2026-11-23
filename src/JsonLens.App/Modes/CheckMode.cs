@@ -138,6 +138,38 @@ public sealed class CheckMode
             return "$['edge cases']['it\\'s']";
         });
 
+        Step("Duplicate keys go to the exact value", () =>
+        {
+            // Search lands on the first (overridden) duplicate, not the one a text path would reach.
+            vm.SearchText = "first";
+            Offscreen.Settle(view, ViewSize);
+            var row = vm.SelectedRow!;
+            Require(row.IsShadowed && vm.DetailText == "\"first\"", $"selected {vm.SelectedPath} = {vm.DetailText}");
+            Require(vm.SelectedWarning.Contains("Duplicate key"), "no duplicate warning in the details pane");
+            Require(view.DuplicateWarning.Visibility == Visibility.Visible, "warning banner hidden");
+            vm.CopyPathCommand.Execute(null);
+            Require(services.ClipboardText == "$['edge cases']['duplicate key'].x", $"copied {services.ClipboardText}");
+            Require(vm.IsToastWarning, "copying an overridden duplicate's path should warn");
+            vm.SearchText = "";
+
+            // Query results for both duplicates open the right rows.
+            vm.QueryText = "$['edge cases']['duplicate key'].*";
+            vm.RunQueryAsync().GetAwaiter().GetResult();
+            Require(vm.QueryResults.Count == 2, $"{vm.QueryResults.Count} results");
+            vm.SelectedResult = vm.QueryResults[0];
+            Require(vm.DetailText == "\"first\"", $"result 1 opened {vm.DetailText}");
+            vm.SelectedResult = vm.QueryResults[1];
+            Require(vm.DetailText == "\"second\"" && !vm.SelectedPathIsAmbiguous, $"result 2 opened {vm.DetailText}");
+
+            // A typed path means the last duplicate, as in JSON parsers.
+            vm.QueryText = "$['edge cases']['duplicate key'].x";
+            vm.RunQueryAsync().GetAwaiter().GetResult();
+            Require(vm.QueryResults.Count == 1 && vm.QueryResults[0].Preview == "\"second\"", "name selector should pick the last duplicate");
+            vm.QueryText = "";
+            vm.RunQueryAsync().GetAwaiter().GetResult();
+            return "overridden duplicate marked, warned and opened exactly";
+        });
+
         Step("Pretty and minify", () =>
         {
             vm.SelectRow(vm.Tree!.Root, scroll: true);
