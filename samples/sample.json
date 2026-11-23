@@ -1,0 +1,38 @@
+{
+  "app": "JSON Lens sample",
+  "version": "1.0.0",
+  "released": true,
+  "license": null,
+  "maintainers": [
+    { "name": "Ava MacLeod", "role": "lead", "email": "ava@example.com" },
+    { "name": "Kenji Tanaka", "role": "contributor", "email": "kenji@example.com" }
+  ],
+  "store": {
+    "book": [
+      { "category": "reference", "author": "Nigel Rees", "title": "Sayings of the Century", "price": 8.95 },
+      { "category": "fiction", "author": "Evelyn Waugh", "title": "Sword of Honour", "price": 12.99 },
+      { "category": "fiction", "author": "Herman Melville", "title": "Moby Dick", "isbn": "0-553-21311-3", "price": 8.99 },
+      { "category": "fiction", "author": "J. R. R. Tolkien", "title": "The Lord of the Rings", "isbn": "0-395-19395-8", "price": 22.99 }
+    ],
+    "bicycle": { "color": "red", "price": 399 }
+  },
+  "edge cases": {
+    "odd key": "needs brackets in a path",
+    "it's": "has a quote",
+    "1st": "starts with a digit",
+    "": "empty key",
+    "unicode": "Montréal, Tromsø, 名前, ✓",
+    "escapes": "line one\nline two\ttabbed \"quoted\" back\\slash",
+    "big number": 123456789012345678901234567890,
+    "exact decimal": 1.10,
+    "exponent": 6.02e23,
+    "negative": -0.5,
+    "empty object": {},
+    "empty array": [],
+    "nested": [[1, 2], [3, [4, [5]]]]
+  },
+  "matrix": [
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+  ]
+}

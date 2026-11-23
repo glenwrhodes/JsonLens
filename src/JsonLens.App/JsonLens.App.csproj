@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>JsonLens</AssemblyName>
+    <RootNamespace>JsonLens.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyTitle>JSON Lens</AssemblyTitle>
+    <Description>JSON explorer with a fast tree, search and JSONPath queries.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\samples\sample.json" LogicalName="JsonLens.sample.json" Link="Assets\sample.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JsonLens.Core\JsonLens.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,21 @@
+# Build output
+bin/
+obj/
+out/
+publish/
+artifacts/
+TestResults/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.DotSettings.user
+
+# Generated demo data and video frames (never commit large files)
+samples/generated/
+frames/
+*.png.tmp
+check.log

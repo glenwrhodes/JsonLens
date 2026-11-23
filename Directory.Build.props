@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <Product>JSON Lens</Product>
+    <Company>Tiny Moosh Games Inc.</Company>
+    <Authors>Tiny Moosh Games Inc.</Authors>
+    <Copyright>© 2026 Tiny Moosh Games Inc.</Copyright>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+</Project>

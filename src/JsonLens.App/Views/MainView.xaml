@@ -1,0 +1,429 @@
+<UserControl x:Class="JsonLens.App.Views.MainView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:app="clr-namespace:JsonLens.App"
+             xmlns:vm="clr-namespace:JsonLens.App.ViewModels"
+             xmlns:tree="clr-namespace:JsonLens.Core.Tree;assembly=JsonLens.Core"
+             mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="860"
+             d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
+             FontFamily="{StaticResource UiFont}" FontSize="12.5"
+             Foreground="{StaticResource TextBrush}" Background="{StaticResource PanelBrush}"
+             TextOptions.TextFormattingMode="Display" UseLayoutRounding="True" SnapsToDevicePixels="True"
+             AllowDrop="True">
+
+    <UserControl.Resources>
+        <app:IndentConverter x:Key="Indent" Step="16" />
+        <app:BoolToVisibilityConverter x:Key="Visible" />
+        <app:BoolToVisibilityConverter x:Key="Hidden" Invert="True" />
+        <app:BoolMatchConverter x:Key="BoolMatch" />
+
+        <!-- One row of the JSON tree. -->
+        <DataTemplate x:Key="RowTemplate" DataType="{x:Type tree:TreeRow}">
+            <StackPanel Orientation="Horizontal" Height="22" Margin="{Binding Depth, Converter={StaticResource Indent}}">
+                <Border x:Name="Chevron" Width="18" Height="22" Background="Transparent" Cursor="Hand"
+                        MouseLeftButtonDown="Chevron_MouseLeftButtonDown">
+                    <Path x:Name="Arrow" Data="M 0 0 L 4 4 L 0 8" Stroke="#FFC5C5C5" StrokeThickness="1.3"
+                          HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5" />
+                </Border>
+                <TextBlock x:Name="Key" Text="{Binding KeyText}" Foreground="{StaticResource KeyBrush}" VerticalAlignment="Center" />
+                <TextBlock x:Name="Colon" Text=": " Foreground="{StaticResource PunctBrush}" VerticalAlignment="Center" />
+                <TextBlock x:Name="Value" Text="{Binding ValueText}" Foreground="{StaticResource StringBrush}" VerticalAlignment="Center" />
+                <TextBlock x:Name="Summary" Text="{Binding Summary}" Foreground="{StaticResource TextDimBrush}"
+                           FontFamily="{StaticResource UiFont}" FontSize="11.5" Margin="8,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsExpandable}" Value="False">
+                    <Setter TargetName="Arrow" Property="Visibility" Value="Hidden" />
+                    <Setter TargetName="Chevron" Property="Cursor" Value="Arrow" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                    <Setter TargetName="Arrow" Property="RenderTransform">
+                        <Setter.Value>
+                            <RotateTransform Angle="90" />
+                        </Setter.Value>
+                    </Setter>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding HasName}" Value="False">
+                    <Setter TargetName="Key" Property="Foreground" Value="{StaticResource TextDimBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsRoot}" Value="True">
+                    <Setter TargetName="Key" Property="Foreground" Value="{StaticResource GroupBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="{x:Static tree:RowKind.Number}">
+                    <Setter TargetName="Value" Property="Foreground" Value="{StaticResource NumberBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="{x:Static tree:RowKind.Boolean}">
+                    <Setter TargetName="Value" Property="Foreground" Value="{StaticResource KeywordBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="{x:Static tree:RowKind.Null}">
+                    <Setter TargetName="Value" Property="Foreground" Value="{StaticResource KeywordBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="{x:Static tree:RowKind.Object}">
+                    <Setter TargetName="Value" Property="Foreground" Value="{StaticResource PunctBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="{x:Static tree:RowKind.Array}">
+                    <Setter TargetName="Value" Property="Foreground" Value="{StaticResource PunctBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="{x:Static tree:RowKind.Group}">
+                    <Setter TargetName="Key" Property="Foreground" Value="{StaticResource GroupBrush}" />
+                    <Setter TargetName="Colon" Property="Visibility" Value="Collapsed" />
+                    <Setter TargetName="Value" Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- One query result. -->
+        <DataTemplate x:Key="ResultTemplate" DataType="{x:Type vm:ResultItem}">
+            <Grid Height="22">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="44" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Number}" Foreground="#FF6E6E6E" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,10,0" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding PathText}" Foreground="{StaticResource KeyBrush}" />
+                    <TextBlock Text="  " />
+                    <TextBlock x:Name="Value" Text="{Binding Preview}" Foreground="{StaticResource StringBrush}" />
+                </StackPanel>
+            </Grid>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Kind}" Value="{x:Static tree:RowKind.Number}">
+                    <Setter TargetName="Value" Property="Foreground" Value="{StaticResource NumberBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="{x:Static tree:RowKind.Boolean}">
+                    <Setter TargetName="Value" Property="Foreground" Value="{StaticResource KeywordBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="{x:Static tree:RowKind.Null}">
+                    <Setter TargetName="Value" Property="Foreground" Value="{StaticResource KeywordBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="{x:Static tree:RowKind.Object}">
+                    <Setter TargetName="Value" Property="Foreground" Value="{StaticResource PunctBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="{x:Static tree:RowKind.Array}">
+                    <Setter TargetName="Value" Property="Foreground" Value="{StaticResource PunctBrush}" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <UserControl.InputBindings>
+        <KeyBinding Gesture="Ctrl+O" Command="{Binding OpenCommand}" />
+        <KeyBinding Gesture="Ctrl+S" Command="{Binding SaveAsCommand}" />
+        <KeyBinding Gesture="Ctrl+Shift+C" Command="{Binding CopyPathCommand}" />
+        <KeyBinding Gesture="F3" Command="{Binding NextMatchCommand}" />
+        <KeyBinding Gesture="Shift+F3" Command="{Binding PrevMatchCommand}" />
+    </UserControl.InputBindings>
+
+    <Grid x:Name="RootLayout">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="34" />
+            <RowDefinition Height="40" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="24" />
+        </Grid.RowDefinitions>
+
+        <!-- ======================================================== title bar -->
+        <Grid x:Name="TitleBar" Grid.Row="0" Background="{StaticResource TitleBarBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
+                <Border Width="20" Height="20" CornerRadius="5" Background="{StaticResource AccentBrush}">
+                    <TextBlock Text="{}{ }" FontFamily="{StaticResource CodeFont}" FontWeight="Bold" FontSize="10.5"
+                               Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,1" />
+                </Border>
+                <TextBlock Text="JSON Lens" Margin="10,0,0,0" FontWeight="SemiBold" Foreground="{StaticResource TextBrightBrush}" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding FileName, StringFormat='  —  {0}'}" Foreground="{StaticResource TextDimBrush}" VerticalAlignment="Center"
+                           Visibility="{Binding HasDocument, Converter={StaticResource Visible}}" />
+            </StackPanel>
+            <StackPanel x:Name="CaptionButtons" Grid.Column="2" Orientation="Horizontal">
+                <Button Style="{StaticResource CaptionButton}" Content="&#xE921;" ToolTip="Minimize"
+                        Command="{x:Static SystemCommands.MinimizeWindowCommand}" WindowChrome.IsHitTestVisibleInChrome="True" />
+                <Button x:Name="MaximizeButton" Style="{StaticResource CaptionButton}" Content="&#xE922;" ToolTip="Maximize"
+                        Command="{x:Static SystemCommands.MaximizeWindowCommand}" WindowChrome.IsHitTestVisibleInChrome="True" />
+                <Button Style="{StaticResource CloseCaptionButton}" Content="&#xE8BB;" ToolTip="Close"
+                        Command="{x:Static SystemCommands.CloseWindowCommand}" WindowChrome.IsHitTestVisibleInChrome="True" />
+            </StackPanel>
+        </Grid>
+
+        <!-- ======================================================== toolbar -->
+        <Border Grid.Row="1" Background="{StaticResource ToolbarBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+            <DockPanel Margin="8,0" LastChildFill="False">
+                <Button x:Name="OpenButton" Style="{StaticResource ToolButton}" Command="{Binding OpenCommand}" ToolTip="Open a JSON file (Ctrl+O)">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource IconText}" Text="&#xE8E5;" Foreground="#FFDCB67A" />
+                        <TextBlock Text="Open" Margin="6,0,0,0" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource ToolButton}" Command="{Binding OpenDemoCommand}" ToolTip="Open the generated 37 MB demo file">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource IconText}" Text="&#xE8A5;" Foreground="{StaticResource KeyBrush}" />
+                        <TextBlock Text="Open demo" Margin="6,0,0,0" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource ToolButton}" Command="{Binding SaveAsCommand}" ToolTip="Save the whole document, pretty or minified (Ctrl+S)">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource IconText}" Text="&#xE74E;" />
+                        <TextBlock Text="Save as" Margin="6,0,0,0" />
+                    </StackPanel>
+                </Button>
+                <Border Width="1" Height="18" Background="{StaticResource BorderBrush}" Margin="8,0" />
+                <Button x:Name="ExpandAllButton" Style="{StaticResource ToolButton}" Command="{Binding ExpandAllCommand}" ToolTip="Expand all (up to 200,000 rows)">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource IconText}" Text="&#xE70D;" FontSize="11" />
+                        <TextBlock Text="Expand all" Margin="6,0,0,0" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="CollapseAllButton" Style="{StaticResource ToolButton}" Command="{Binding CollapseAllCommand}" ToolTip="Collapse all">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource IconText}" Text="&#xE70E;" FontSize="11" />
+                        <TextBlock Text="Collapse all" Margin="6,0,0,0" />
+                    </StackPanel>
+                </Button>
+                <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Command="{Binding AboutCommand}" ToolTip="About JSON Lens">
+                    <TextBlock Style="{StaticResource IconText}" Text="&#xE946;" />
+                </Button>
+            </DockPanel>
+        </Border>
+
+        <!-- ======================================================== main area -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="320" />
+                <ColumnDefinition Width="5" />
+                <ColumnDefinition Width="0.72*" MinWidth="300" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: search + tree -->
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Border Background="{StaticResource PanelBrush}" Padding="10,8,10,8" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="SearchBox" Style="{StaticResource InputBox}" app:UiState.Icon="&#xE721;"
+                                 app:UiState.Placeholder="Search keys and values  (Ctrl+F)"
+                                 app:UiState.HasError="{Binding SearchFoundNothing}"
+                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 PreviewKeyDown="SearchBox_PreviewKeyDown" />
+                        <ToggleButton Grid.Column="1" Style="{StaticResource OptionToggle}" Content="Aa" Margin="6,0,0,0"
+                                      IsChecked="{Binding MatchCase}" ToolTip="Match case" />
+                        <TextBlock x:Name="SearchStatusText" Grid.Column="2" Text="{Binding SearchStatus}" MinWidth="86" Margin="8,0,4,0"
+                                   VerticalAlignment="Center" TextAlignment="Right" Foreground="{StaticResource TextDimBrush}" FontSize="12" />
+                        <Button Grid.Column="3" Style="{StaticResource ToolButton}" Padding="6,5" Command="{Binding PrevMatchCommand}" ToolTip="Previous match (Shift+F3, Shift+Enter)">
+                            <TextBlock Style="{StaticResource IconText}" Text="&#xE70E;" FontSize="11" />
+                        </Button>
+                        <Button x:Name="NextMatchButton" Grid.Column="4" Style="{StaticResource ToolButton}" Padding="6,5" Command="{Binding NextMatchCommand}" ToolTip="Next match (F3, Enter)">
+                            <TextBlock Style="{StaticResource IconText}" Text="&#xE70D;" FontSize="11" />
+                        </Button>
+                    </Grid>
+                </Border>
+
+                <ListBox x:Name="TreeList" Grid.Row="1" Style="{StaticResource FlatList}"
+                         ItemContainerStyle="{StaticResource FlatListItem}" ItemTemplate="{StaticResource RowTemplate}"
+                         ItemsSource="{Binding Rows}" FontFamily="{StaticResource CodeFont}" FontSize="12.5"
+                         SelectionMode="Single"
+                         SelectionChanged="TreeList_SelectionChanged"
+                         PreviewKeyDown="TreeList_PreviewKeyDown"
+                         PreviewMouseLeftButtonDown="TreeList_PreviewMouseLeftButtonDown" />
+
+                <!-- Empty state -->
+                <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" x:Name="EmptyState">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding HasDocument}" Value="False" />
+                                        <Condition Binding="{Binding IsLoading}" Value="False" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <Border Width="64" Height="64" CornerRadius="14" Background="#FF2A2D2E" HorizontalAlignment="Center">
+                        <TextBlock Text="{}{ }" FontFamily="{StaticResource CodeFont}" FontSize="26" FontWeight="Bold"
+                                   Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock Text="Open a JSON file to explore it" FontSize="17" Foreground="{StaticResource TextBrightBrush}"
+                               HorizontalAlignment="Center" Margin="0,18,0,6" />
+                    <TextBlock Text="Ctrl+O, or drop a file anywhere in this window" Foreground="{StaticResource TextDimBrush}" HorizontalAlignment="Center" />
+                    <TextBlock Text="{Binding LoadError}" Foreground="{StaticResource ErrorBrush}" HorizontalAlignment="Center" TextWrapping="Wrap"
+                               MaxWidth="520" TextAlignment="Center" Margin="0,14,0,0"
+                               Visibility="{Binding LoadError, Converter={StaticResource Visible}}" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,22,0,0">
+                        <Button x:Name="EmptyOpenButton" Style="{StaticResource AccentButton}" Command="{Binding OpenCommand}" Content="Open file…" />
+                        <Button x:Name="EmptyDemoButton" Style="{StaticResource ToolButton}" Command="{Binding OpenDemoCommand}" Margin="10,0,0,0" Padding="14,6"
+                                BorderBrush="{StaticResource BorderBrush}" Content="Open 37 MB demo" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Loading -->
+                <Grid Grid.Row="1" Background="#CC1E1E1E" Visibility="{Binding IsLoading, Converter={StaticResource Visible}}">
+                    <ProgressBar Style="{StaticResource ThinProgress}" IsIndeterminate="{Binding IsLoading}" VerticalAlignment="Top" />
+                    <TextBlock Text="{Binding LoadingText}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14" Foreground="{StaticResource TextBrightBrush}" />
+                </Grid>
+            </Grid>
+
+            <GridSplitter Grid.Column="1" Style="{StaticResource SplitterStyle}" HorizontalAlignment="Stretch" ResizeBehavior="PreviousAndNext" />
+
+            <!-- Right: query + details -->
+            <Grid Grid.Column="2" Background="{StaticResource SidePanelBrush}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="2*" MinHeight="80" />
+                    <RowDefinition Height="5" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="3*" MinHeight="80" />
+                </Grid.RowDefinitions>
+
+                <!-- Query header -->
+                <DockPanel Grid.Row="0" Margin="12,10,12,6">
+                    <TextBlock Text="JSONPATH QUERY" Style="{StaticResource PanelHeaderText}" />
+                    <TextBlock x:Name="QueryStatusText" Text="{Binding QueryStatus}" DockPanel.Dock="Right" HorizontalAlignment="Right"
+                               Foreground="{StaticResource TextDimBrush}" FontSize="11.5" VerticalAlignment="Center" />
+                </DockPanel>
+
+                <Grid Grid.Row="1" Margin="12,0,12,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="QueryBox" Style="{StaticResource InputBox}" FontFamily="{StaticResource CodeFont}" FontSize="12.5"
+                             app:UiState.Icon="&#xE71C;" app:UiState.Placeholder="$..book[?@.price &lt; 10].title   (Ctrl+L, Enter to run)"
+                             app:UiState.HasError="{Binding HasQueryError}"
+                             Text="{Binding QueryText, UpdateSourceTrigger=PropertyChanged}"
+                             PreviewKeyDown="QueryBox_PreviewKeyDown" />
+                    <Button x:Name="RunQueryButton" Grid.Column="1" Style="{StaticResource ToolButton}" Margin="6,0,0,0" Padding="8,5"
+                            Command="{Binding RunQueryCommand}" ToolTip="Run query (Enter)">
+                        <TextBlock Style="{StaticResource IconText}" Text="&#xE768;" Foreground="{StaticResource SuccessBrush}" />
+                    </Button>
+                </Grid>
+
+                <!-- Query error with a pointer under the bad character -->
+                <StackPanel Grid.Row="2" Margin="12,2,12,0" Visibility="{Binding HasQueryError, Converter={StaticResource Visible}}">
+                    <Canvas Height="10" x:Name="ErrorPointerCanvas">
+                        <Path x:Name="ErrorPointer" Data="M 0 8 L 5 0 L 10 8 Z" Fill="{StaticResource ErrorBrush}" Canvas.Left="0" />
+                    </Canvas>
+                    <TextBlock Text="{Binding QueryError}" Foreground="{StaticResource ErrorBrush}" TextWrapping="Wrap" FontSize="12" />
+                </StackPanel>
+
+                <!-- Query results -->
+                <Grid Grid.Row="3" Margin="0,8,0,0">
+                    <ListBox x:Name="ResultsList" Style="{StaticResource FlatList}" ItemContainerStyle="{StaticResource FlatListItem}"
+                             ItemTemplate="{StaticResource ResultTemplate}" ItemsSource="{Binding QueryResults}"
+                             SelectedItem="{Binding SelectedResult, Mode=TwoWay}"
+                             FontFamily="{StaticResource CodeFont}" FontSize="12" />
+                    <StackPanel Margin="16,6,16,0" Visibility="{Binding HasQueryResults, Converter={StaticResource Hidden}}" IsHitTestVisible="False">
+                        <TextBlock Text="Examples" Foreground="{StaticResource TextDimBrush}" FontWeight="SemiBold" FontSize="11.5" Margin="0,0,0,4" />
+                        <TextBlock FontFamily="{StaticResource CodeFont}" FontSize="12" Foreground="#FF7A7A7A" LineHeight="20">
+                            <Run Text="$.store.book[*].author" /><LineBreak />
+                            <Run Text="$..price" /><LineBreak />
+                            <Run Text="$..book[-1]   $..book[0:2]" /><LineBreak />
+                            <Run Text="$..book[?@.isbn]" /><LineBreak />
+                            <Run Text="$..book[?@.price &lt; 10 &amp;&amp; @.category == 'fiction']" />
+                        </TextBlock>
+                    </StackPanel>
+                </Grid>
+
+                <GridSplitter Grid.Row="4" Style="{StaticResource HSplitterStyle}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeBehavior="PreviousAndNext" />
+
+                <!-- Details header -->
+                <DockPanel Grid.Row="5" Margin="12,8,12,6">
+                    <TextBlock Text="SELECTED NODE" Style="{StaticResource PanelHeaderText}" />
+                    <TextBlock Text="{Binding SelectedInfo}" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="{StaticResource TextDimBrush}" FontSize="11.5" VerticalAlignment="Center" />
+                </DockPanel>
+
+                <StackPanel Grid.Row="6" Margin="12,0,12,8">
+                    <Border Background="{StaticResource InputBrush}" CornerRadius="4" Padding="8,5" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <TextBox x:Name="PathBox" Text="{Binding SelectedPath, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                                 Foreground="{StaticResource KeyBrush}" FontFamily="{StaticResource CodeFont}" FontSize="12.5" CaretBrush="White"
+                                 SelectionBrush="{StaticResource AccentBrush}" ToolTip="JSONPath of the selected node" />
+                    </Border>
+                    <DockPanel Margin="0,8,0,0" LastChildFill="False">
+                        <Button x:Name="CopyPathButton" Style="{StaticResource ToolButton}" Command="{Binding CopyPathCommand}" ToolTip="Copy JSONPath (Ctrl+Shift+C)" Margin="0,0,2,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource IconText}" Text="&#xE8C8;" />
+                                <TextBlock Text="Copy path" Margin="6,0,0,0" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource ToolButton}" Command="{Binding CopyPointerCommand}" ToolTip="Copy as JSON Pointer (RFC 6901)">
+                            <TextBlock Text="Pointer" />
+                        </Button>
+                        <Button x:Name="CopyValueButton" Style="{StaticResource ToolButton}" Command="{Binding CopyValueCommand}" ToolTip="Copy the value (Ctrl+C in the tree)">
+                            <TextBlock Text="Copy value" />
+                        </Button>
+                        <Border DockPanel.Dock="Right" Background="{StaticResource InputBrush}" CornerRadius="4" Padding="2">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="PrettyToggle" Style="{StaticResource SegmentRadio}" Content="Pretty" GroupName="Format"
+                                             IsChecked="{Binding IsMinified, Converter={StaticResource BoolMatch}, ConverterParameter=False}" />
+                                <RadioButton x:Name="MinifyToggle" Style="{StaticResource SegmentRadio}" Content="Minify" GroupName="Format"
+                                             IsChecked="{Binding IsMinified, Converter={StaticResource BoolMatch}, ConverterParameter=True}" />
+                            </StackPanel>
+                        </Border>
+                    </DockPanel>
+                </StackPanel>
+
+                <Grid Grid.Row="7">
+                    <TextBox x:Name="DetailBox" Text="{Binding DetailText, Mode=OneWay}">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource CodeView}">
+                                <Style.Triggers>
+                                    <!-- Minified JSON is one long line: wrap it so it can be read. -->
+                                    <DataTrigger Binding="{Binding IsMinified}" Value="True">
+                                        <Setter Property="TextWrapping" Value="Wrap" />
+                                        <Setter Property="HorizontalScrollBarVisibility" Value="Disabled" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+                    <Border VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,18,14" Background="#FF3A2F1E" CornerRadius="3" Padding="8,3"
+                            Visibility="{Binding DetailTruncated, Converter={StaticResource Visible}}">
+                        <TextBlock Text="Preview cut at 200 KB · Copy value copies everything" Foreground="#FFE2C08D" FontSize="11.5" />
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <!-- Toast -->
+            <Border x:Name="Toast" Grid.ColumnSpan="3" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,22"
+                    Background="#F0303031" BorderBrush="#FF454545" BorderThickness="1" CornerRadius="6" Padding="14,8"
+                    Opacity="{Binding ToastOpacity}" IsHitTestVisible="False">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.5" />
+                </Border.Effect>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource IconText}" Text="&#xE73E;" Foreground="{StaticResource SuccessBrush}" Margin="0,0,10,0" />
+                    <TextBlock Text="{Binding ToastText}" Foreground="{StaticResource TextBrightBrush}" FontFamily="{StaticResource CodeFont}" FontSize="12.5" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- ======================================================== status bar -->
+        <Border Grid.Row="3" Background="{StaticResource AccentBrush}">
+            <DockPanel Margin="10,0">
+                <TextBlock DockPanel.Dock="Right" Text="© 2026 Tiny Moosh Games Inc." Foreground="#CCFFFFFF" FontSize="11.5" VerticalAlignment="Center" Margin="18,0,0,0" />
+                <TextBlock DockPanel.Dock="Right" Text="{Binding DocInfo}" Foreground="White" FontSize="11.5" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding SelectedPath}" Foreground="White" FontSize="11.5" VerticalAlignment="Center"
+                           FontFamily="{StaticResource CodeFont}" TextTrimming="CharacterEllipsis" />
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>
